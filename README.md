@@ -76,3 +76,12 @@ This writes/overwrites `docs/index.html`.
   show a `[warn]`/`[error]` line pointing at what broke rather than failing silently.
 - The scraper identifies itself with a browser-like `User-Agent` and adds a short
   delay between requests to be polite to the site.
+
+
+## On taildraggers.com (theme v4)
+
+Each run also writes `docs/listings.json`: the same listings, title, disclaimer and
+"Search more" buttons as `docs/index.html`, as data. The taildraggers.com child theme
+(v4+) reads it and shows the listings natively on the matching page, so the
+`<iframe>` is no longer needed (any iframe still pointing here is swapped for the
+native list automatically). `docs/index.html` is still produced exactly as before.

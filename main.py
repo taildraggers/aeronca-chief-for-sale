@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import json
 import os
+import re
 
 from scraper import barnstormers
 from scraper.common import Listing, close_browser, parse_listing_date
@@ -204,6 +206,71 @@ def render_html(listings: list[Listing]) -> str:
 """
 
 
+
+# --- listings.json for taildraggers.com (theme v4) ---
+JSON_PATH = os.path.join(os.path.dirname(OUTPUT_PATH), "listings.json")
+_JSON_DATE_FORMATS = ("%B %d %Y", "%b %d %Y", "%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d")
+
+
+def _json_date(date_posted: str) -> str:
+    """'November 24, 2026' / '11/24/2026' -> '2026-11-24' (or '' if unknown)."""
+    cleaned = (date_posted or "").replace(",", "").strip()
+    for fmt in _JSON_DATE_FORMATS:
+        try:
+            return dt.datetime.strptime(cleaned, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _json_price_value(price: str) -> int:
+    digits = re.sub(r"[^\d.]", "", price or "")
+    try:
+        return int(float(digits)) if digits else 0
+    except ValueError:
+        return 0
+
+
+def write_json(listings, html_doc: str) -> None:
+    """Write docs/listings.json: the same listings, title, disclaimer and "Search more"
+    buttons as docs/index.html, as data. taildraggers.com shows these natively (no iframe)."""
+
+    def _text(pattern: str) -> str:
+        m = re.search(pattern, html_doc, re.S)
+        return html.unescape(re.sub(r"<[^>]+>", "", m.group(1))).strip() if m else ""
+
+    links = [
+        {"name": html.unescape(name), "url": html.unescape(url)}
+        for url, name in re.findall(r'<a class="resource-link" href="([^"]+)"[^>]*>\s*<span>(.*?)</span>', html_doc)
+    ]
+    data = {
+        "version": 1,
+        "page_title": PAGE_TITLE,
+        "updated": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+        "count": len(listings),
+        "disclaimer": _text(r'class="disclaimer">(.*?)</div>'),
+        "search_heading": _text(r'<div class="more-resources">\s*<h2>(.*?)</h2>'),
+        "search_intro": _text(r'<div class="more-resources">.*?<p>(.*?)</p>'),
+        "search_links": links,
+        "listings": [
+            {
+                "title": getattr(item, "title", "") or "",
+                "url": getattr(item, "url", "") or "",
+                "price": getattr(item, "price", "") or "",
+                "price_value": _json_price_value(getattr(item, "price", "")),
+                "location": getattr(item, "location", "") or "",
+                "date_posted": getattr(item, "date_posted", "") or "",
+                "date": _json_date(getattr(item, "date_posted", "")),
+                "site": getattr(item, "site", "") or "",
+            }
+            for item in listings
+        ],
+    }
+    with open(JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    print(f"[main] wrote {JSON_PATH}")
+
+
 def main() -> None:
     listings = collect_listings()
     print(f"[main] total unique listings: {len(listings)}")
@@ -218,6 +285,7 @@ def main() -> None:
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         f.write(html_doc)
     print(f"[main] wrote {OUTPUT_PATH}")
+    write_json(listings, html_doc)
 
 
 if __name__ == "__main__":
